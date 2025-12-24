@@ -1,0 +1,59 @@
+{
+  "id": "mygarden",
+  "name": "Developed By randa",
+  "short_name": "MyGarden",
+  "description": "Aplikasi catatan kebun dan pengingat perawatan tanaman.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [],
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "id",
+  "dir": "ltr",
+
+  "icons": [
+    {
+      "src": "icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+
+  "screenshots": [
+    {
+      "src": "screen1.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
+
+  "prefer_related_applications": false,
+  "related_applications": [],
+
+  "handle_links": "auto",
+  "launch_handler": {
+    "client_mode": "auto"
+  },
+
+  "edge_side_panel": {},
+  "iarc_rating_id": ""
+}
