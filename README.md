@@ -4,7 +4,7 @@ This is my first project—a Progressive Web App (PWA) designed for visual farm 
 
 ## 🛠️ Built With
 - **Frontend**: Vanilla JavaScript, HTML5, CSS3.
-- **Storage**: **IndexedDB** (High-capacity local database for persistent farm data).
+- **Storage**: **IndexedDB**.
 - **Library**: `html2canvas` for map snapshots.
 
 ## 📱 How to Use
