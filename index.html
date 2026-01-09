@@ -2965,6 +2965,7 @@ if (importFileInput) {
                         poison = importedData.poison || [];
                         maps = importedData.maps || [];
                         finances = importedData.finances || []; 
+                        avatar = importedData.avatar || [];
                         
                         // 2. Simpan ke IndexedDB (Murni DB)
                         await dbHelper.set(`records_${loggedInUsername}`, records);
@@ -2975,8 +2976,8 @@ if (importFileInput) {
                         await dbHelper.set(`poison_${loggedInUsername}`, poison);
                         await dbHelper.set(`maps_${loggedInUsername}`, maps);
                         await dbHelper.set(`finances_${loggedInUsername}`, finances);
+                        await dbHelper.set(`avatar_${loggedInUsername}`, avatar);
 
-                        // 3. Update User List jika ada
                         if (importedData.registeredUsers) {
                             const currentUsers = await dbHelper.get('registeredUsers') || [];
                             importedData.registeredUsers.forEach(u => {
