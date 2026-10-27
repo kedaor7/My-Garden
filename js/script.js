@@ -2532,7 +2532,7 @@ settingsView.innerHTML = `
                 <label>Restore .json (File / Drive)</label>
                 <div class="setting-action">
                     <span style="color: var(--primary-color);">📂 Import</span>
-                    <input type="file" id="import-file" style="display: none;" accept=".json">
+                    <input type="file" id="import-file" style="display: none;" accept=".zip,.json">
                 </div>
             </div>
         </div>
@@ -2581,82 +2581,111 @@ if(newModeToggleSwitch) {
 // --- UPDATE LOGIKA IMPORT DATA (PUPUK & RACUN ARCHIVE SUPPORT) ---
 const importFileInput = document.getElementById('import-file');
 if (importFileInput) {
-    importFileInput.replaceWith(importFileInput.cloneNode(true)); // Reset listener lama
-    
-    document.getElementById('import-file').addEventListener('change', (event) => {
+    importFileInput.replaceWith(importFileInput.cloneNode(true));
+    document.getElementById('import-file').addEventListener('change', async (event) => {
         const file = event.target.files[0];
         if (!file) return;
 
         showConfirmDialog(
-            'Konfirmasi Impor', 
+            'Konfirmasi Impor',
             'Data saat ini akan ditimpa dengan data dari file backup. Lanjutkan?',
-            () => {
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    try {
-                        const importedData = JSON.parse(e.target.result);
-                        
-                        if (!importedData.records && !importedData.gardens) {
-                            throw new Error("Format JSON tidak valid.");
-                        }
+            async () => {
+                try {
+                    showToast("Membaca backup...");
+                    let importedData;
 
-                        showToast("Memproses data...");
+                    if (/\.zip$/i.test(file.name) || file.type === 'application/zip') {
+                        if (typeof JSZip === 'undefined') throw new Error('Pembaca ZIP belum tersedia. Periksa koneksi internet lalu coba lagi.');
+                        const zip = await JSZip.loadAsync(file);
+                        const readJson = async (name) => {
+                            const entry = zip.file(name);
+                            if (!entry) return null;
+                            return JSON.parse(await entry.async('text'));
+                        };
+                        // Format ZIP baru: tiap fitur punya file JSON sendiri.
+                        importedData = {
+                            records: await readJson('catatan.json') || [],
+                            galleryPhotos: await readJson('galeri.json') || [],
+                            gardens: await readJson('kebun.json') || [],
+                            reminders: await readJson('pengingat.json') || [],
+                            maps: await readJson('peta.json') || [],
+                            fertilizers: await readJson('pupuk.json') || [],
+                            poison: await readJson('racun.json') || [],
+                            avatar: await readJson('profil.json'),
+                            financeBooks: await readJson('keuangan/buku.json') || [],
+                            finances: await readJson('keuangan/transaksi-lainnya.json') || [],
+                            exportDate: null
+                        };
 
-                        // 1. Load Data Umum
-                        records = importedData.records || [];
-                        galleryPhotos = importedData.galleryPhotos || [];
-                        gardens = importedData.gardens || [];
-                        reminders = importedData.reminders || [];
-                        maps = importedData.maps || [];
-                        finances = importedData.finances || []; 
-                        financeBooks = importedData.financeBooks || [];
-                        avatar = importedData.avatar || [];
-
-                        // 2. KHUSUS PUPUK: Pastikan property 'isArchived' ada
-                        fertilizers = (importedData.fertilizers || []).map(f => ({
-                            ...f,
-                            isArchived: f.isArchived === true // Default false jika tidak ada
-                        }));
-
-                        // 3. KHUSUS RACUN: Tambahin juga property 'isArchived'
-                        poison = (importedData.poison || []).map(p => ({
-                            ...p,
-                            isArchived: p.isArchived === true // Default false jika tidak ada
-                        }));
-                        
-                        // 4. Simpan ke Database (IndexedDB / LocalStorage via dbHelper)
-                        await dbHelper.set(`records_${loggedInUsername}`, records);
-                        await dbHelper.set(`gallery_${loggedInUsername}`, galleryPhotos);
-                        await dbHelper.set(`gardens_${loggedInUsername}`, gardens);
-                        await dbHelper.set(`reminders_${loggedInUsername}`, reminders);
-                        await dbHelper.set(`fertilizers_${loggedInUsername}`, fertilizers);
-                        await dbHelper.set(`poison_${loggedInUsername}`, poison);
-                        await dbHelper.set(`maps_${loggedInUsername}`, maps);
-                        await dbHelper.set(`finances_${loggedInUsername}`, finances);
-                        await dbHelper.set(`financeBooks_${loggedInUsername}`, financeBooks);
-                        await dbHelper.set(`avatar_${loggedInUsername}`, avatar);
-
-                        showCustomDialog('Impor Berhasil', 'Data berhasil dipulihkan termasuk status arsip pupuk & racun.');
-                        
-                        // Refresh UI sesuai halaman yang lagi dibuka
-                        if (typeof renderContent === 'function') {
-                            renderContent(currentRecordType);
+                        // Setiap buku keuangan punya file sendiri. Nama file disimpan di manifest
+                        // agar nama buku yang mengandung karakter khusus tetap bisa dipulihkan.
+                        const manifest = await readJson('manifest.json');
+                        if (manifest && Array.isArray(manifest.financeFiles)) {
+                            for (const item of manifest.financeFiles) {
+                                const payload = await readJson(item.path);
+                                if (!payload) continue;
+                                if (Array.isArray(payload.records)) importedData.finances.push(...payload.records);
+                                else if (Array.isArray(payload)) importedData.finances.push(...payload);
+                            }
                         } else {
-                            location.reload(); // Fallback jika renderContent tidak tersedia
+                            // Kompatibilitas ZIP sederhana tanpa manifest.
+                            for (const path of Object.keys(zip.files)) {
+                                if (!/^keuangan\/.+\.json$/i.test(path) ||
+                                    path === 'keuangan/buku.json' ||
+                                    path === 'keuangan/transaksi-lainnya.json') continue;
+                                const payload = await readJson(path);
+                                if (payload && Array.isArray(payload.records)) importedData.finances.push(...payload.records);
+                                else if (Array.isArray(payload)) importedData.finances.push(...payload);
+                            }
                         }
-
-                    } catch (error) {
-                        showCustomDialog('Impor Gagal', 'Error: ' + error.message);
+                    } else {
+                        // Kompatibilitas dengan backup JSON versi lama.
+                        importedData = JSON.parse(await file.text());
                     }
-                };
-                reader.readAsText(file);
+
+                    if (!importedData || (!('records' in importedData) && !('gardens' in importedData) &&
+                        !('galleryPhotos' in importedData) && !('financeBooks' in importedData))) {
+                        throw new Error("Format backup tidak valid atau file penting tidak ditemukan.");
+                    }
+
+                    records = importedData.records || [];
+                    galleryPhotos = importedData.galleryPhotos || [];
+                    gardens = importedData.gardens || [];
+                    reminders = importedData.reminders || [];
+                    maps = importedData.maps || [];
+                    finances = importedData.finances || [];
+                    financeBooks = importedData.financeBooks || [];
+                    avatar = importedData.avatar ?? null;
+                    fertilizers = (importedData.fertilizers || []).map(f => ({ ...f, isArchived: f.isArchived === true }));
+                    poison = (importedData.poison || []).map(p => ({ ...p, isArchived: p.isArchived === true }));
+
+                    await dbHelper.set(`records_${loggedInUsername}`, records);
+                    await dbHelper.set(`gallery_${loggedInUsername}`, galleryPhotos);
+                    await dbHelper.set(`gardens_${loggedInUsername}`, gardens);
+                    await dbHelper.set(`reminders_${loggedInUsername}`, reminders);
+                    await dbHelper.set(`fertilizers_${loggedInUsername}`, fertilizers);
+                    await dbHelper.set(`poison_${loggedInUsername}`, poison);
+                    await dbHelper.set(`maps_${loggedInUsername}`, maps);
+                    await dbHelper.set(`finances_${loggedInUsername}`, finances);
+                    await dbHelper.set(`financeBooks_${loggedInUsername}`, financeBooks);
+                    await dbHelper.set(`avatar_${loggedInUsername}`, avatar);
+
+                    document.querySelectorAll('.app-toast').forEach(t => t.remove());
+                    showCustomDialog('Impor Berhasil', 'Backup berhasil dipulihkan. File ZIP terpisah dan backup JSON lama didukung.');
+                    if (typeof renderContent === 'function') renderContent(currentRecordType);
+                    else location.reload();
+                } catch (error) {
+                    document.querySelectorAll('.app-toast').forEach(t => t.remove());
+                    showCustomDialog('Impor Gagal', 'Error: ' + error.message);
+                } finally {
+                    event.target.value = '';
+                }
             },
             () => { event.target.value = ''; },
             'danger'
         );
     });
 }
-
 
 // --- MODAL CONTROLS ---
 
@@ -3765,65 +3794,82 @@ async function exportData() {
         showCustomDialog('Error', 'Login diperlukan.');
         return;
     }
-    
-    showToast("Menyiapkan backup...");
+    if (typeof JSZip === 'undefined') {
+        showCustomDialog('Export Gagal', 'Library ZIP belum tersedia. Periksa koneksi internet lalu coba lagi.');
+        return;
+    }
 
+    showToast("Menyiapkan backup ZIP...");
     try {
-        // Beri jeda sedikit agar UI tidak freeze
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Ambil avatar dari database
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const zip = new JSZip();
         const savedAvatar = await dbHelper.get(`avatar_${loggedInUsername}`);
-
-        const data = {
-            exportDate: new Date().toISOString(),
-            appVersion: "3.0.0", 
-            username: loggedInUsername,
-            
-            // Mengambil data terbaru dari Global Variables (RAM)
-            records: records || [],
-            galleryPhotos: galleryPhotos || [],
-            gardens: gardens || [],
-            fertilizers: fertilizers || [],
-            poison: poison || [],
-            maps: maps || [],
-            finances: finances || [],
-            financeBooks: financeBooks || [],
-            reminders: reminders || [],
-            
-            /* PERBAIKAN DISINI: 
-               Jika savedAvatar tidak ada (null/undefined), maka isi dengan null.
-               Jangan memanggil variabel 'avatar' secara langsung jika tidak yakin variabel itu ada.
-            */
-            avatar: savedAvatar ? savedAvatar : null
-        };
-
-        // Konversi objek ke string JSON
-        const jsonString = JSON.stringify(data, null, 2);
-        
-        // --- MODERNISASI: SHARE TO DRIVE ---
         const timestamp = new Date().toISOString().slice(0, 10);
-        const fileName = `Backup_GreenLog_${loggedInUsername}_${timestamp}.json`;
-        
-        // Buat File Object dari string JSON
-        const file = new File([jsonString], fileName, { type: "application/json" });
+        const json = (value) => JSON.stringify(value ?? null, null, 2);
+        const addJson = (path, value) => zip.file(path, json(value));
 
-        // Memanggil fungsi share (Pastikan helper shareContentToDrive sudah ada di script Anda)
+        // File JSON dipisahkan per fitur agar mudah diperiksa atau dipulihkan.
+        addJson('profil.json', savedAvatar ?? null);
+        addJson('galeri.json', galleryPhotos || []);
+        addJson('catatan.json', records || []);
+        addJson('kebun.json', gardens || []);
+        addJson('peta.json', maps || []);
+        addJson('pengingat.json', reminders || []);
+        addJson('pupuk.json', fertilizers || []);
+        addJson('racun.json', poison || []);
+        addJson('keuangan/buku.json', financeBooks || []);
+
+        // Transaksi dikelompokkan per buku berdasarkan properti relasi yang tersedia.
+        // Transaksi yang tidak cocok dengan buku mana pun tetap masuk ke file khusus.
+        const allTransactions = finances || [];
+        const assigned = new Set();
+        const financeFiles = [];
+        const safeFilePart = (value) => String(value || 'Buku').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 90) || 'Buku';
+
+        (financeBooks || []).forEach((book, index) => {
+            const bookName = book.name || book.title || book.nama || book.bookName || `Buku ${index + 1}`;
+            const bookId = book.id ?? book.bookId ?? book._id;
+            const matches = allTransactions.filter((transaction) => {
+                const transactionBookId = transaction.bookId ?? transaction.financeBookId ?? transaction.book_id ?? transaction.bookID;
+                const transactionBookName = transaction.bookName ?? transaction.financeBookName ?? transaction.book_name;
+                const match = (bookId != null && transactionBookId != null && String(transactionBookId) === String(bookId)) ||
+                    (transactionBookName != null && String(transactionBookName) === String(bookName));
+                if (match) assigned.add(transaction);
+                return match;
+            });
+            const path = `keuangan/${String(index + 1).padStart(2, '0')}-${safeFilePart(bookName)}.json`;
+            addJson(path, { book, records: matches });
+            financeFiles.push({ path, bookName });
+        });
+
+        const unassigned = allTransactions.filter(transaction => !assigned.has(transaction));
+        addJson('keuangan/transaksi-lainnya.json', unassigned);
+        addJson('manifest.json', {
+            format: 'my-garden-backup',
+            formatVersion: 1,
+            exportDate: new Date().toISOString(),
+            appVersion: '3.0.0',
+            username: loggedInUsername,
+            financeFiles
+        });
+
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        const fileName = `Backup_GreenLog_${loggedInUsername}_${timestamp}.zip`;
+        const file = new File([blob], fileName, { type: 'application/zip' });
+
         if (typeof shareContentToDrive === 'function') {
-            await shareContentToDrive(file, 'Backup GreenLog', 'Simpan file backup ini ke Google Drive agar aman.');
+            await shareContentToDrive(file, 'Backup GreenLog', 'Simpan file ZIP backup ini ke tempat yang aman.');
         } else {
-            // Fallback jika fungsi share belum terpasang
-            const blob = new Blob([jsonString], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = fileName;
+            document.body.appendChild(a);
             a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
         }
-        
-        // Bersihkan toast loading
         document.querySelectorAll('.app-toast').forEach(t => t.remove());
-        
     } catch (e) {
         console.error("Export Error:", e);
         document.querySelectorAll('.app-toast').forEach(t => t.remove());
