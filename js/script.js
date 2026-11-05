@@ -3237,6 +3237,14 @@ const aiKnowledge = {
             'tikus': "Tikus makan buah/bunga: Pake racun antikoagulan (Ratgone) di ketiak pelepah. Musuh alaminya Burung Hantu."
         }
     },
+    pupuk: {
+        defisiensi: {
+            kuning: "Daun menguning bisa berkaitan dengan kekurangan unsur hara, drainase, akar, atau penyakit. Periksa pola daun yang terdampak, umur tanaman, kondisi tanah, dan riwayat pemupukan sebelum menentukan tindakan.",
+            bintik: "Bintik oranye atau cokelat dapat disebabkan gangguan hara, jamur, atau kerusakan daun. Amati apakah bercak menyebar, muncul di daun tua/muda, dan apakah ada gejala lain. Foto serta pemeriksaan lapangan diperlukan untuk memastikan penyebab.",
+            putih: "Daun pucat atau keriting tidak menunjuk pada satu penyebab pasti. Periksa hama, kondisi pucuk, akar, air, dan riwayat penggunaan herbisida. Hindari memberi pupuk atau pestisida secara spekulatif.",
+            ungu: "Warna keunguan dapat berkaitan dengan stres tanaman atau ketidakseimbangan hara, tetapi bukan diagnosis pasti. Periksa umur daun, kondisi akar, kelembapan tanah, dan pola gejala pada beberapa tanaman."
+        }
+    },
     racun: {
         herbisida: {
             'kuning': "**Glifosat** (sistemik): Mati sampai akar, tapi lama (7-10 hari). Bagus buat ilalang/teki. Jangan kena daun sawit muda!",
@@ -3348,12 +3356,12 @@ function aiActionAddNote(text) {
 }
 
 // 5. OTAK UTAMA (MAIN BRAIN CONTROLLER)
-function getAiResponse(message) {
+function getAiResponseLegacy(message) {
     const msg = message.toLowerCase();
     
     if (msg.trim() === '/fitur' || msg.trim() === 'fitur') {
         const featureList = `
-🤖 **Daftar Fitur Asisten (V11.0)**
+🤖 **Daftar Fitur Asisten (OFFLINE V4.0)**
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 💰 **[1]. Analisis Finansial**
@@ -3384,6 +3392,14 @@ function getAiResponse(message) {
 🔄 **[6]. Konversi Satuan**
  • Konversi Berat ➔ *"Konversi 500 kg ke gram"*
  • Konversi Luas ➔ *"Konversi 500 m2 ke hektar"*
+
+🧠 **[7]. Einstein Offline Intelligence V5.0**
+ • Memahami variasi bahasa sehari-hari dan beberapa typo umum
+ • Analisis intent berbasis frasa dan konteks percakapan
+ • Ringkasan cerdas lintas data kebun, panen, dan inventaris
+ • Insight kualitas data dan tindak lanjut berdasarkan data aktual
+ • Memori percakapan sementara selama sesi aktif
+ • Semua pemrosesan berlangsung lokal; tanpa API dan internet
 `;
         return featureList;
     }
@@ -3545,6 +3561,614 @@ function getAiResponse(message) {
 }
 
 
+/* ============================================================
+ * FITUR AI: OFFLINE INTELLIGENCE LAYER V4.0
+ * - Normalisasi bahasa Indonesia dan variasi penulisan
+ * - Konteks percakapan singkat selama sesi aktif
+ * - Intent aliases dan follow-up yang lebih natural
+ * - Tidak memakai API, internet, atau mengirim data keluar
+ * ============================================================ */
+
+const aiSessionMemory = {
+    turns: [],
+    lastTopic: null,
+    lastResponse: null,
+    lastSmartIntent: null,
+    remember(userText, assistantText, topic) {
+        this.turns.push({ user: userText, assistant: assistantText, topic: topic || null, at: Date.now() });
+        if (this.turns.length > 12) this.turns.shift();
+        if (topic) this.lastTopic = topic;
+        this.lastResponse = assistantText;
+    },
+    clear() { this.turns = []; this.lastTopic = null; this.lastResponse = null; this.lastSmartIntent = null; }
+};
+
+function aiNormalizeText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[’‘]/g, "'")
+        .replace(/\b(gk|ga|ngga|enggak|gak)\b/g, 'tidak')
+        .replace(/\b(pngen|pengen)\b/g, 'ingin')
+        .replace(/\b(pokok|pohon)\b/g, 'pohon')
+        .replace(/\b(kg-an|kilo|kiloan)\b/g, 'kg')
+        .replace(/\b(pemupukan|pemupukan)\b/g, 'pupuk')
+        .replace(/\s+/g, ' ').trim();
+}
+
+function aiDetectTopic(text) {
+    const t = aiNormalizeText(text);
+    if (/panen|hasil|produktivitas|tbs/.test(t)) return 'panen';
+    if (/pupuk|pemupukan|urea|mop|kcl|kieserite|stok/.test(t)) return 'pupuk';
+    if (/kebun|pohon|pokok|hektar|lahan/.test(t)) return 'kebun';
+    if (/biaya|modal|profit|untung|harga|keuangan/.test(t)) return 'finansial';
+    if (/daun|hama|penyakit|jamur|ulat|kumbang/.test(t)) return 'tanaman';
+    return null;
+}
+
+function aiExpandNaturalLanguage(text) {
+    let t = aiNormalizeText(text);
+    const aliases = [
+        [/^(hasil|hasil panen|panen saya|berapa panen|total hasil)$/, 'total panen'],
+        [/(berapa|jumlah).*(pohon|pokok|tanaman)/, 'jumlah pohon'],
+        [/(stok|persediaan).*(pupuk)|pupuk.*(stok|persediaan)/, 'kondisi stok pupuk'],
+        [/(biaya|pengeluaran).*(pupuk).*(kg|panen)|(cost).*(kg)/, 'biaya pupuk per kg'],
+        [/(rata rata|rerata).*(panen|hasil).*(pohon|pokok)/, 'hasil per pokok'],
+        [/(kapan|jadwal).*(pupuk|pemupukan)/, 'jadwal pupuk ulang'],
+        [/(tren|perkembangan).*(panen|hasil)/, 'tren panen'],
+        [/(buat|bikin|tambah).*(kebun|lahan)/, 'buat kebun ' + t],
+        [/(tambah|beli).*(stok|pupuk)/, 'tambah stok ' + t]
+    ];
+    for (const [pattern, replacement] of aliases) {
+        if (pattern.test(t)) { t = t.replace(pattern, replacement); break; }
+    }
+    // Follow-up pendek memakai topik terakhir, tanpa menebak angka atau mengubah data.
+    if (/^(berapa|berapa ya|terus|lalu|gimana|bagaimana|jelasin|detailnya|lebih detail|kok bisa)\??$/.test(t) && aiSessionMemory.lastTopic) {
+        const followups = {
+            panen: 'total panen', pupuk: 'kondisi stok pupuk', kebun: 'jumlah pohon',
+            finansial: 'total biaya pupuk', tanaman: 'daun tanaman'
+        };
+        return followups[aiSessionMemory.lastTopic] || t;
+    }
+    return t;
+}
+
+/* ============================================================
+ * FITUR AI: INTELLIGENCE LAYER V5.0
+ * - Intent scoring berbasis frasa, bukan satu kata pemicu saja
+ * - Ringkasan lintas modul berbasis data aktual aplikasi
+ * - Pemeriksaan kualitas data dan rekomendasi yang terukur
+ * - Tidak melakukan perubahan data tanpa perintah aksi eksplisit
+ * ============================================================ */
+
+function aiCountByType(type) {
+    if (typeof records === 'undefined' || !Array.isArray(records)) return 0;
+    return records.filter(r => String(r.type || '').toLowerCase() === String(type).toLowerCase()).length;
+}
+
+function aiGetSmartOverview() {
+    const treeCount = (typeof gardens !== 'undefined' && Array.isArray(gardens))
+        ? gardens.reduce((sum, g) => sum + (parseInt(g.plantCount, 10) || 0), 0) : 0;
+    const gardenCount = (typeof gardens !== 'undefined' && Array.isArray(gardens)) ? gardens.length : 0;
+    const harvestCount = aiCountByType('Panen');
+    const harvestTotal = getRawTotalHarvest();
+    const fertilizerCount = (typeof fertilizers !== 'undefined' && Array.isArray(fertilizers)) ? fertilizers.length : 0;
+    const stockWarnings = fertilizerCount ? fertilizers.filter(f => {
+        const current = Number(f.currentWeight) || 0;
+        const initial = Number(f.initialWeight) || 0;
+        return current <= 0 || (initial > 0 && current / initial <= 0.15);
+    }) : [];
+
+    let out = '🌿 **RINGKASAN CERDAS MY GARDEN**\n';
+    out += `• Kebun terdaftar: **${gardenCount}**\n• Populasi tercatat: **${treeCount.toLocaleString('id-ID')} pokok**\n`;
+    out += `• Catatan panen: **${harvestCount}** (${harvestTotal.toLocaleString('id-ID')} kg tercatat)\n`;
+    out += `• Jenis pupuk di inventaris: **${fertilizerCount}**\n`;
+    out += `• Stok yang perlu diperiksa: **${stockWarnings.length} item**\n\n`;
+
+    const notes = [];
+    if (!gardenCount) notes.push('Belum ada kebun yang terdaftar. Tambahkan data kebun agar analisis per pokok bisa dilakukan.');
+    if (!harvestCount) notes.push('Belum ada catatan panen. Tren dan produktivitas belum dapat dihitung.');
+    if (gardenCount && treeCount === 0) notes.push('Data kebun tersedia, tetapi jumlah pokok belum diisi atau bernilai nol.');
+    if (stockWarnings.length) notes.push('Periksa stok: ' + stockWarnings.map(f => `${f.name || 'Pupuk'} (${Number(f.currentWeight) || 0} kg)`).join(', ') + '.');
+    if (!notes.length) notes.push('Data utama sudah tersedia. Coba analisis tren panen, produktivitas per pokok, atau biaya pupuk per kg.');
+    out += '**INSIGHT & LANGKAH BERIKUTNYA**\n' + notes.map((n, i) => `${i + 1}. ${n}`).join('\n');
+    out += '\n\n<small>Ringkasan dihitung dari data yang tersimpan di aplikasi; bukan prediksi hasil panen.</small>';
+    return out;
+}
+
+function aiClassifyIntent(text) {
+    const t = aiNormalizeText(text);
+    const groups = [
+        { id: 'overview', phrases: ['ringkasan kebun','ringkas kebun','kondisi kebun','analisis keseluruhan','laporan kebun','gambaran kebun','analisis semua data'] },
+        { id: 'harvest', phrases: ['total panen','hasil panen','jumlah panen','panen saya','panen gua','berapa hasil','hasil kebun'] },
+        { id: 'productivity', phrases: ['produktivitas','hasil per pohon','hasil per pokok','rata rata per pohon','rata rata per pokok'] },
+        { id: 'stock', phrases: ['stok pupuk','persediaan pupuk','inventaris pupuk','pupuk tersisa','stok yang menipis','stok rendah'] },
+        { id: 'fertilizer_cost', phrases: ['biaya pupuk','pengeluaran pupuk','modal pupuk','biaya per kg panen','cost per kg'] },
+        { id: 'harvest_trend', phrases: ['tren panen','trend panen','perkembangan panen','panen meningkat','panen menurun'] },
+        { id: 'tree_count', phrases: ['jumlah pohon','jumlah pokok','populasi tanaman','total tanaman','berapa tanaman'] },
+        { id: 'last_fertilizer', phrases: ['pemupukan terakhir','terakhir memupuk','terakhir kasih pupuk','kapan terakhir pupuk'] }
+    ];
+    let best = { id: null, score: 0 };
+    for (const group of groups) {
+        let score = 0;
+        for (const phrase of group.phrases) {
+            if (t.includes(phrase)) score = Math.max(score, phrase.split(' ').length + 1);
+        }
+        if (score > best.score) best = { id: group.id, score };
+    }
+    return best.score >= 3 ? best.id : null;
+}
+
+function aiResolveSmartIntent(text) {
+    const t = aiNormalizeText(text);
+    const intent = aiClassifyIntent(t);
+    if (intent) {
+        aiSessionMemory.lastSmartIntent = intent;
+        const answers = {
+            overview: () => aiGetSmartOverview(),
+            harvest: () => aiAnalytics.getTotalHarvest(),
+            productivity: () => aiAnalytics.getHarvestProductivity(),
+            stock: () => aiAnalytics.checkLowStock(),
+            fertilizer_cost: () => aiAnalytics.getCostPerKgHarvest(),
+            harvest_trend: () => aiAnalytics.getHarvestTrend(),
+            tree_count: () => aiAnalytics.countTrees(),
+            last_fertilizer: () => aiAnalytics.getLastFertilizer()
+        };
+        return answers[intent]();
+    }
+
+    // Tindak lanjut singkat: arahkan ke analisis terakhir tanpa mengarang data.
+    if (/^(jelasin|jelaskan|detail|lebih detail|kok bisa|kenapa|terus|lanjut|uraikan)\??$/.test(t)) {
+        const previous = aiSessionMemory.lastSmartIntent;
+        if (previous === 'overview') return aiGetSmartOverview();
+        if (previous === 'harvest') return aiAnalytics.getHarvestTrend();
+        if (previous === 'stock') return aiAnalytics.checkLowStock();
+        if (previous === 'productivity') return aiAnalytics.getHarvestProductivity();
+        if (previous === 'fertilizer_cost') return aiAnalytics.getCostPerKgHarvest();
+        if (previous === 'harvest_trend') return aiAnalytics.getHarvestTrend();
+        if (previous === 'tree_count') return aiAnalytics.countTrees();
+        if (previous === 'last_fertilizer') return aiAnalytics.getLastFertilizer();
+    }
+    return null;
+}
+
+function getAiResponse(message) {
+    const expanded = aiExpandNaturalLanguage(message);
+    const topic = aiDetectTopic(expanded) || aiDetectTopic(message);
+    let response;
+    try {
+        response = aiResolveSmartIntent(message);
+        if (response === null) response = getAiResponseLegacy(expanded);
+    } catch (error) {
+        console.error('Offline AI engine error:', error);
+        response = 'Maaf, ada bagian analisis yang belum bisa saya proses. Data kebun tidak saya ubah. Coba gunakan perintah yang lebih spesifik, atau ketik **/fitur**.';
+    }
+    if (!response || typeof response !== 'string') {
+        response = 'Saya belum menemukan jawaban yang cukup akurat. Coba sebutkan nama fitur atau data yang ingin diperiksa.';
+    }
+    aiSessionMemory.remember(message, response, topic);
+    return response;
+}
+
+
+/* ============================================================
+ * EINSTEIN OFFLINE AI V6.0 - V10.0
+ * Smart reasoning berbasis data lokal My Garden.
+ * Seluruh analisis bersifat read-only; tidak mengubah data.
+ * ============================================================ */
+
+// V6: Utilitas data yang konsisten dan tahan terhadap tanggal/angka kosong.
+function aiSafeNumber(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const parsed = parseFloat(String(value == null ? '' : value).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function aiParseDate(value) {
+    if (!value) return null;
+    const raw = String(value).trim();
+    let date = null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const parts = raw.split('-').map(Number);
+        date = new Date(parts[0], parts[1] - 1, parts[2]);
+    } else {
+        date = new Date(raw);
+    }
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function aiSortedRecords(type) {
+    const source = Array.isArray(records) ? records : [];
+    return source.filter(r => !type || String(r.type || '').toLowerCase() === String(type).toLowerCase())
+        .map(r => ({ record: r, date: aiParseDate(r.date) }))
+        .sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+}
+
+// V7: Analisis panen berbasis periode kalender, bukan urutan array.
+function aiGetPeriodHarvestInsights() {
+    const now = new Date();
+    const startCurrent = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+    const startPrevious = new Date(startCurrent);
+    startPrevious.setDate(startPrevious.getDate() - 30);
+    const rows = aiSortedRecords('Panen');
+    const currentRows = rows.filter(x => x.date && x.date >= startCurrent && x.date <= now);
+    const previousRows = rows.filter(x => x.date && x.date >= startPrevious && x.date < startCurrent);
+    const sum = list => list.reduce((n, x) => n + Math.max(0, aiSafeNumber(x.record.quantity)), 0);
+    const current = sum(currentRows), previous = sum(previousRows);
+    const fmt = n => n.toLocaleString('id-ID', { maximumFractionDigits: 1 });
+    let comparison = 'Belum cukup data pada dua periode berurutan untuk membandingkan perubahan.';
+    if (previous > 0) {
+        const pct = ((current - previous) / previous) * 100;
+        comparison = `${pct > 0 ? 'Naik' : pct < 0 ? 'Turun' : 'Stabil'} ${Math.abs(pct).toFixed(1)}% dibanding 30 hari sebelumnya.`;
+    } else if (current > 0) {
+        comparison = 'Ada panen pada 30 hari terakhir, tetapi belum ada data pembanding pada 30 hari sebelumnya.';
+    }
+    return `📊 **ANALISIS PANEN 30 HARI**\n• 30 hari terakhir: **${fmt(current)} kg** dari ${currentRows.length} catatan\n• 30 hari sebelumnya: **${fmt(previous)} kg** dari ${previousRows.length} catatan\n• Perbandingan: ${comparison}\n\nCatatan: perbandingan ini hanya memakai catatan bertanggal valid; bukan prediksi hasil panen.`;
+}
+
+// V8: Analisis per kebun memakai referensi gardenIdReference yang tersedia.
+function aiGetGardenBreakdown() {
+    const list = Array.isArray(gardens) ? gardens : [];
+    if (!list.length) return 'Belum ada kebun terdaftar. Tambahkan kebun terlebih dahulu agar analisis per kebun tersedia.';
+    const harvest = (Array.isArray(records) ? records : []).filter(r => r.type === 'Panen');
+    const lines = list.map(g => {
+        const related = harvest.filter(r => r.gardenIdReference && r.gardenIdReference === g.id);
+        const total = related.reduce((n, r) => n + Math.max(0, aiSafeNumber(r.quantity)), 0);
+        const trees = Math.max(0, aiSafeNumber(g.plantCount));
+        const perTree = trees ? total / trees : null;
+        return { title: g.title || g.name || 'Kebun tanpa nama', total, trees, perTree, count: related.length };
+    }).sort((a, b) => b.total - a.total);
+    return '🌳 **RINGKASAN PER KEBUN**\n' + lines.map((x, i) =>
+        `${i + 1}. **${x.title}** — ${x.total.toLocaleString('id-ID')} kg (${x.count} catatan); ${x.trees.toLocaleString('id-ID')} pokok; ${x.perTree === null ? 'produktivitas/pokok belum bisa dihitung' : `${x.perTree.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kg/pokok secara historis`}`
+    ).join('\n') + '\n\nCatatan: panen tanpa referensi kebun tidak dimasukkan ke rincian per kebun.';
+}
+
+// V9: Audit kualitas data agar AI transparan tentang keterbatasan data.
+function aiGetDataQualityReport() {
+    const recs = Array.isArray(records) ? records : [];
+    const invalidDates = recs.filter(r => !aiParseDate(r.date)).length;
+    const invalidHarvest = recs.filter(r => r.type === 'Panen' && aiSafeNumber(r.quantity) <= 0).length;
+    const orphanGardenRefs = recs.filter(r => r.gardenIdReference && !(Array.isArray(gardens) ? gardens : []).some(g => g.id === r.gardenIdReference)).length;
+    const missingTreeCounts = (Array.isArray(gardens) ? gardens : []).filter(g => aiSafeNumber(g.plantCount) <= 0).length;
+    const emptyFertilizerNames = (Array.isArray(fertilizers) ? fertilizers : []).filter(f => !String(f.name || '').trim()).length;
+    const issues = [
+        ['Tanggal catatan tidak valid', invalidDates],
+        ['Catatan panen tanpa jumlah positif', invalidHarvest],
+        ['Catatan dengan referensi kebun tidak ditemukan', orphanGardenRefs],
+        ['Kebun tanpa jumlah pohon valid', missingTreeCounts],
+        ['Item pupuk tanpa nama', emptyFertilizerNames]
+    ];
+    const total = issues.reduce((n, x) => n + x[1], 0);
+    return `🧾 **AUDIT KUALITAS DATA**\n${issues.map(x => `• ${x[0]}: **${x[1]}**`).join('\n')}\n\n${total ? `Ditemukan ${total} hal yang layak diperiksa. Ini hanya laporan; tidak ada data yang diubah.` : 'Tidak ditemukan masalah dasar pada pemeriksaan ini.'}\n\nAudit ini memeriksa kelengkapan dan konsistensi sederhana, bukan memvalidasi kebenaran data lapangan.`;
+}
+
+// V10: Diagnosis bertahap. AI tidak menetapkan penyakit atau dosis pestisida dari satu gejala.
+function aiStartPlantTriage(text) {
+    const t = aiNormalizeText(text);
+    const symptom = /kuning|menguning/.test(t) ? 'daun menguning' :
+        /bercak|bintik|oranye|cokelat/.test(t) ? 'bercak atau bintik pada daun' :
+        /keriting|menggulung/.test(t) ? 'daun keriting' :
+        /layu/.test(t) ? 'tanaman layu' : 'gejala tanaman';
+    aiSessionMemory.lastTopic = 'diagnosis';
+    aiSessionMemory.lastSmartIntent = 'plant_triage';
+    return `🌱 **PEMERIKSAAN AWAL: ${symptom.toUpperCase()}**\nGejala ini belum cukup untuk memastikan penyebabnya. Biar analisis lebih terarah, jawab beberapa hal berikut:\n1. Gejala muncul pada daun tua, daun muda, atau seluruh bagian?\n2. Terjadi pada satu tanaman atau banyak tanaman dalam satu area?\n3. Sejak kapan terlihat, dan apakah menyebar?\n4. Ada perubahan drainase, genangan, pemupukan, atau penyemprotan baru-baru ini?\n\nSementara itu, dokumentasikan gejala dan bandingkan beberapa tanaman. Jangan menentukan pestisida atau dosis hanya dari gejala ini; pemeriksaan lapangan diperlukan untuk memastikan penyebab.`;
+}
+
+function aiResolveV10Intent(message) {
+    const t = aiNormalizeText(message);
+    if (/audit data|kualitas data|cek data|data bermasalah|validasi data/.test(t)) return aiGetDataQualityReport();
+    if (/per kebun|tiap kebun|masing masing kebun|rincian kebun|panen kebun mana/.test(t)) return aiGetGardenBreakdown();
+    if (/panen 30 hari|panen bulan ini|panen bulan lalu|perbandingan panen|bandingkan panen/.test(t)) return aiGetPeriodHarvestInsights();
+    if (/diagnosa|diagnosis|daun menguning|daun kuning|bercak daun|bintik daun|daun keriting|tanaman layu/.test(t)) return aiStartPlantTriage(message);
+    if (aiSessionMemory.lastSmartIntent === 'plant_triage' && /^(daun tua|daun muda|seluruh|satu tanaman|banyak tanaman|baru|lama|menyebar|tidak menyebar|ada genangan|tidak ada genangan|habis pupuk|baru disemprot)/.test(t)) {
+        return 'Terima kasih, informasi itu membantu mempersempit kemungkinan, tetapi belum cukup untuk memastikan diagnosis. Sebutkan juga lokasi gejala (daun bawah/atas/pucuk), jumlah tanaman terdampak, dan foto kondisi bila tersedia. Hindari tindakan kimia sebelum penyebabnya lebih jelas.';
+    }
+    return null;
+}
+
+// Koreksi pemilihan catatan pemupukan terakhir: gunakan tanggal terbaru yang valid.
+function getDaysSinceLastFertilization() {
+    const latest = aiSortedRecords('Pemupukan').find(x => x.date);
+    if (!latest) return null;
+    const today = new Date();
+    const a = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const b = new Date(latest.date.getFullYear(), latest.date.getMonth(), latest.date.getDate());
+    return Math.max(0, Math.floor((a.getTime() - b.getTime()) / 86400000));
+}
+
+// Koreksi tren: ambil catatan panen terbaru berdasarkan tanggal, bukan posisi array.
+aiAnalytics.getHarvestTrend = () => {
+    const sorted = aiSortedRecords('Panen');
+    if (sorted.length < 2) return 'Perlu minimal 2 catatan panen bertanggal valid untuk menganalisis tren.';
+    const latest = Math.max(0, aiSafeNumber(sorted[0].record.quantity));
+    const avg = sorted.reduce((n, x) => n + Math.max(0, aiSafeNumber(x.record.quantity)), 0) / sorted.length;
+    if (!avg) return 'Belum ada jumlah panen positif yang dapat dianalisis.';
+    const pct = ((latest - avg) / avg) * 100;
+    const label = pct > 10 ? 'di atas' : pct < -10 ? 'di bawah' : 'dekat dengan';
+    return `📈 **TREN PANEN HISTORIS**\nCatatan terbaru (${sorted[0].date.toLocaleDateString('id-ID')}) adalah **${latest.toLocaleString('id-ID')} kg**, ${label} rata-rata seluruh catatan (**${avg.toLocaleString('id-ID', { maximumFractionDigits: 1 })} kg**) sebesar **${Math.abs(pct).toFixed(1)}%**.\n\nIni membandingkan satu catatan terbaru dengan rata-rata catatan, bukan membandingkan periode yang setara.`;
+};
+
+// Router V10 mempertahankan seluruh kemampuan engine sebelumnya sebagai fallback.
+function getAiResponse(message) {
+    const expanded = aiExpandNaturalLanguage(message);
+    const topic = aiDetectTopic(expanded) || aiDetectTopic(message);
+    let response = null;
+    try {
+        response = aiResolveV10Intent(message);
+        if (response === null) response = aiResolveSmartIntent(message);
+        if (response === null) response = getAiResponseLegacy(expanded);
+    } catch (error) {
+        console.error('Einstein Offline AI V10 error:', error);
+        response = 'Maaf, analisis ini belum bisa diproses. Data My Garden tidak saya ubah. Coba gunakan pertanyaan yang lebih spesifik.';
+    }
+    if (!response || typeof response !== 'string') response = 'Saya belum menemukan jawaban yang cukup akurat. Coba sebutkan data atau fitur yang ingin dianalisis.';
+    aiSessionMemory.remember(message, response, topic);
+    return response;
+}
+
+/* ======================== END EINSTEIN OFFLINE AI V10 ======================== */
+
+/* ============================================================
+ * EINSTEIN OFFLINE AI V20.0 - SMART FARM ASSISTANT
+ * V11-V20: analisis multi-periode, ranking, finansial, stok,
+ * deteksi duplikasi, kalender panen, konteks percakapan,
+ * intent matching, bantuan penggunaan, dan guardrail.
+ * Semua analisis read-only; tidak memanggil API eksternal.
+ * ============================================================ */
+
+const aiV20 = {
+    version: '30.0',
+    lastAnalysis: null,
+    safeArray(value) { return Array.isArray(value) ? value : []; },
+    money(value) { return 'Rp ' + aiSafeNumber(value).toLocaleString('id-ID', { maximumFractionDigits: 0 }); },
+    dateLabel(date) { return date ? date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : 'tanggal tidak valid'; },
+    harvests() { return aiSortedRecords('Panen').filter(x => aiSafeNumber(x.record.quantity) > 0); },
+    sum(list, getter) { return list.reduce((total, item) => total + aiSafeNumber(getter(item)), 0); },
+    periodDays(message) {
+        const t = aiNormalizeText(message);
+        const m = t.match(/(7|14|30|60|90|180|365)\s*hari/);
+        if (m) return Number(m[1]);
+        if (/minggu ini|7 hari terakhir/.test(t)) return 7;
+        if (/bulan ini|30 hari terakhir/.test(t)) return 30;
+        if (/3 bulan|kuartal/.test(t)) return 90;
+        if (/6 bulan/.test(t)) return 180;
+        return 30;
+    },
+    harvestPeriod(days) {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days + 1);
+        const items = this.harvests().filter(x => x.date >= start && x.date <= now);
+        const total = this.sum(items, x => x.record.quantity);
+        const avg = items.length ? total / items.length : 0;
+        const daily = total / days;
+        const max = items.reduce((best, x) => !best || aiSafeNumber(x.record.quantity) > aiSafeNumber(best.record.quantity) ? x : best, null);
+        const min = items.reduce((best, x) => !best || aiSafeNumber(x.record.quantity) < aiSafeNumber(best.record.quantity) ? x : best, null);
+        this.lastAnalysis = { type: 'period', days, total, count: items.length };
+        if (!items.length) return `📅 **ANALISIS PANEN ${days} HARI**\nBelum ada catatan panen bertanggal valid dalam periode ${days} hari terakhir. Pastikan tanggal dan data panen sudah dicatat.`;
+        return `📅 **ANALISIS PANEN ${days} HARI TERAKHIR**\n• Total: **${total.toLocaleString('id-ID')} kg**\n• Jumlah catatan: **${items.length}**\n• Rata-rata per catatan: **${avg.toLocaleString('id-ID', { maximumFractionDigits: 1 })} kg**\n• Rata-rata per hari kalender: **${daily.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kg/hari**\n• Tertinggi: **${aiSafeNumber(max.record.quantity).toLocaleString('id-ID')} kg** (${this.dateLabel(max.date)})\n• Terendah: **${aiSafeNumber(min.record.quantity).toLocaleString('id-ID')} kg** (${this.dateLabel(min.date)})\n\nRata-rata harian membagi total dengan seluruh hari kalender, bukan hanya hari panen.`;
+    },
+    monthlyHarvest() {
+        const now = new Date();
+        const months = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            const items = this.harvests().filter(x => `${x.date.getFullYear()}-${String(x.date.getMonth()+1).padStart(2,'0')}` === key);
+            months.push({ label: d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }), total: this.sum(items, x => x.record.quantity), count: items.length });
+        }
+        const populated = months.filter(x => x.count);
+        if (!populated.length) return 'Belum ada catatan panen bertanggal valid untuk enam bulan terakhir.';
+        return '📊 **REKAP PANEN 6 BULAN**\n' + months.map(x => `• ${x.label}: **${x.total.toLocaleString('id-ID')} kg** (${x.count} catatan)`).join('\n') + '\n\nRekap mengikuti bulan kalender dan hanya memakai tanggal valid.';
+    },
+    gardenRanking() {
+        const rows = this.safeArray(gardens).map(g => {
+            const items = this.harvests().filter(x => x.record.gardenIdReference === g.id);
+            return { name: g.title || 'Kebun tanpa nama', total: this.sum(items, x => x.record.quantity), count: items.length, trees: aiSafeNumber(g.plantCount) };
+        }).filter(x => x.count);
+        if (!rows.length) return 'Belum ada catatan panen yang terhubung ke kebun. Hubungkan catatan panen dengan kebun agar peringkat bisa dihitung.';
+        rows.sort((a,b) => b.total-a.total);
+        return '🏆 **PERINGKAT PANEN PER KEBUN**\n' + rows.map((x,i) => `${i+1}. **${x.name}** — ${x.total.toLocaleString('id-ID')} kg (${x.count} catatan; ${x.trees} pokok tercatat)`).join('\n') + '\n\nPeringkat berdasarkan total catatan historis, bukan produktivitas yang sudah dinormalisasi terhadap luas dan umur tanaman.';
+    },
+    financeSummary() {
+        const items = this.safeArray(finances).filter(x => aiParseDate(x.date));
+        if (!items.length) return 'Belum ada transaksi keuangan bertanggal valid yang bisa dianalisis.';
+        const income = this.sum(items.filter(x => String(x.type).toLowerCase() === 'pemasukan'), x => x.price);
+        const expenses = this.sum(items.filter(x => String(x.type).toLowerCase() !== 'pemasukan'), x => x.price);
+        const net = income - expenses;
+        const byName = {};
+        items.filter(x => String(x.type).toLowerCase() !== 'pemasukan').forEach(x => {
+            const key = String(x.name || 'Pengeluaran lain').trim();
+            byName[key] = (byName[key] || 0) + aiSafeNumber(x.price);
+        });
+        const top = Object.entries(byName).sort((a,b) => b[1]-a[1]).slice(0,5);
+        this.lastAnalysis = { type: 'finance', income, expenses, net };
+        return `💰 **RINGKASAN KEUANGAN**\n• Pemasukan: **${this.money(income)}**\n• Pengeluaran: **${this.money(expenses)}**\n• Selisih: **${this.money(net)}**\n• Transaksi dianalisis: **${items.length}**\n\n**Pengeluaran terbesar berdasarkan nama transaksi**\n${top.length ? top.map((x,i)=>`${i+1}. ${x[0]} — ${this.money(x[1])}`).join('\n') : 'Belum ada pengeluaran.'}\n\nCatatan: ini menjumlahkan transaksi yang tersimpan di seluruh buku keuangan. Selisih bukan laba bersih usaha karena biaya/pendapatan yang belum dicatat tidak ikut dihitung.`;
+    },
+    stockReport() {
+        const items = this.safeArray(fertilizers);
+        if (!items.length) return 'Inventaris pupuk masih kosong.';
+        const rows = items.map(f => ({ name: f.name || 'Tanpa nama', current: aiSafeNumber(f.currentWeight), initial: aiSafeNumber(f.initialWeight) }));
+        const total = this.sum(rows, x => x.current);
+        const low = rows.filter(x => x.current <= 0 || (x.initial > 0 && x.current / x.initial <= .15));
+        return `📦 **LAPORAN INVENTARIS PUPUK**\n• Jenis/item tercatat: **${rows.length}**\n• Total berat stok saat ini: **${total.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kg**\n• Item kosong/menipis (≤15% dari stok awal): **${low.length}**\n\n${rows.map(x=>`• ${x.name}: ${x.current.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kg${x.initial > 0 ? ` dari ${x.initial} kg awal` : ''}`).join('\n')}\n\nPeringatan stok hanya indikator inventaris, bukan rekomendasi dosis pemupukan.`;
+    },
+    duplicateAudit() {
+        const seen = new Map();
+        const duplicates = [];
+        this.safeArray(records).forEach(r => {
+            const key = [r.type, r.date, r.quantity, r.gardenIdReference, r.pupukType, r.plantName].map(x=>String(x || '').trim().toLowerCase()).join('|');
+            if (seen.has(key)) duplicates.push(r); else seen.set(key, r);
+        });
+        return duplicates.length ? `🔎 **PEMERIKSAAN CATATAN MIRIP**\nDitemukan **${duplicates.length}** catatan dengan kombinasi jenis, tanggal, jumlah, kebun, dan detail yang sama. Periksa secara manual sebelum menghapus apa pun. AI tidak menghapus atau mengubah catatan.\n\nCatatan ini bisa saja transaksi/panen yang memang kebetulan sama.` : '✅ Tidak ditemukan catatan dengan kombinasi data identik pada pemeriksaan sederhana ini.';
+    },
+    weekdayAnalysis() {
+        const buckets = Array.from({length:7},()=>({count:0,total:0}));
+        this.harvests().forEach(x=>{ const b=buckets[x.date.getDay()]; b.count++; b.total+=aiSafeNumber(x.record.quantity); });
+        const names=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+        const rows=buckets.map((x,i)=>({name:names[i],...x})).filter(x=>x.count).sort((a,b)=>(b.total/b.count)-(a.total/a.count));
+        if (!rows.length) return 'Belum ada data panen bertanggal valid untuk analisis hari.';
+        return '🗓️ **POLA PANEN BERDASARKAN HARI**\n' + rows.map(x=>`• ${x.name}: rata-rata ${ (x.total/x.count).toLocaleString('id-ID',{maximumFractionDigits:1}) } kg/catatan (${x.count} catatan)`).join('\n') + '\n\nIni hanya pola dari catatan yang ada; bukan bukti bahwa hari tertentu menyebabkan hasil lebih tinggi.';
+    },
+    help() {
+        return `🤖 **EINSTEIN OFFLINE AI V30.0**\nSaya bisa membantu membaca dan menganalisis data My Garden yang tersimpan di perangkat ini. Saya bukan GPT online: saya tidak punya pengetahuan umum seluas model besar, tidak mencari internet, dan tidak otomatis mengetahui kondisi lapangan.\n\n**Coba tanyakan:**\n• Ringkasan kebun / total panen / jumlah pohon\n• Analisis panen 7, 30, 90, atau 180 hari\n• Rekap panen 6 bulan\n• Kebun mana panennya paling tinggi\n• Pola panen berdasarkan hari\n• Ringkasan keuangan / pengeluaran terbesar\n• Laporan stok pupuk\n• Audit kualitas data / cek catatan ganda\n• Bandingkan panen dengan periode sebelumnya\n• Analisis keuangan berdasarkan periode\n• Riwayat penggunaan pupuk\n• Ringkasan pengingat dan jadwal\n• Detail kebun berdasarkan nama\n• Ringkasan jumlah seluruh data\n• Diagnosis awal tanaman (bertahap, bukan diagnosis pasti)\n\n**Privasi & keamanan:** analisis ini berjalan lokal dan hanya membaca data. Saya tidak menyimpan perubahan ke data kebun. Untuk tindakan penting, periksa kembali hasilnya di modul terkait.`;
+    },
+    guardrail(message, response) {
+        const t = aiNormalizeText(message);
+        if (/racun|pestisida|herbisida|insektisida|fungisida|dosis semprot|campur obat/.test(t)) {
+            return `Saya bisa membantu memahami gejala dan langkah pemeriksaan yang aman, tetapi tidak akan menebak jenis racun, dosis, atau campuran bahan kimia dari chat saja.\n\nIdentifikasi organisme dan baca label resmi produk bersama orang dewasa/tenaga pertanian yang kompeten. Ikuti aturan keselamatan dan jangan mencampur produk tanpa petunjuk label. Jika kamu jelaskan gejalanya, lokasi, dan seberapa luas terdampak, saya bantu susun pemeriksaan awal.`;
+        }
+        return response;
+    }
+};
+
+
+/* ============================================================
+ * EINSTEIN OFFLINE AI V30.0 - ANALISIS LANJUTAN
+ * V21-V30: perbandingan periode, analisis kebun terpilih,
+ * keuangan periodik, penggunaan pupuk, jadwal pengingat,
+ * pencarian data, dan konteks analisis yang lebih konsisten.
+ * Seluruh fungsi di bawah hanya membaca data lokal.
+ * ============================================================ */
+const aiV30 = {
+    dateRange(days, offsetDays = 0) {
+        const end = new Date(); end.setHours(23,59,59,999); end.setDate(end.getDate() - offsetDays);
+        const start = new Date(end); start.setHours(0,0,0,0); start.setDate(start.getDate() - days + 1);
+        return { start, end };
+    },
+    inRange(value, range) { const d = aiParseDate(value); return !!d && d >= range.start && d <= range.end; },
+    compareHarvest(days) {
+        const current = aiV20.harvests().filter(x => x.date >= this.dateRange(days).start && x.date <= this.dateRange(days).end);
+        const prevRange = this.dateRange(days, days);
+        const previous = aiV20.harvests().filter(x => x.date >= prevRange.start && x.date <= prevRange.end);
+        const sum = list => aiV20.sum(list, x => x.record.quantity);
+        const a = sum(current), b = sum(previous), diff = a-b;
+        const pct = b > 0 ? (diff/b)*100 : null;
+        aiV20.lastAnalysis = { type:'harvest-compare', days };
+        const trend = pct === null ? (a > 0 ? 'Periode sebelumnya belum memiliki data pembanding.' : 'Belum ada data panen pada kedua periode.') : `${diff >= 0 ? 'Naik' : 'Turun'} ${Math.abs(pct).toLocaleString('id-ID',{maximumFractionDigits:1})}% dibanding periode sebelumnya.`;
+        return `📈 **PERBANDINGAN PANEN ${days} HARI**\n• Periode terbaru: **${a.toLocaleString('id-ID')} kg** (${current.length} catatan)\n• Periode sebelumnya: **${b.toLocaleString('id-ID')} kg** (${previous.length} catatan)\n• Selisih: **${diff >= 0 ? '+' : ''}${diff.toLocaleString('id-ID')} kg**\n• Perubahan: **${trend}**\n\nPerbandingan memakai dua rentang kalender berurutan dengan panjang sama. Perubahan tidak otomatis menunjukkan penyebab tertentu.`;
+    },
+    gardenDetail(message) {
+        const q = aiNormalizeText(message).replace(/(berapa|analisis|detail|data|panen|kebun|untuk|di|tentang|produksi)/g,' ').replace(/\s+/g,' ').trim();
+        const candidates = (Array.isArray(gardens) ? gardens : []).map(g=>({g, name:aiNormalizeText(g.title || '')})).filter(x=>x.name && (q.includes(x.name) || x.name.split(' ').some(w=>w.length>2 && q.includes(w))));
+        if (!candidates.length) return null;
+        if (candidates.length > 1) return `Ada beberapa nama kebun yang cocok: ${candidates.map(x=>`**${x.g.title}**`).join(', ')}. Sebutkan nama kebun yang lebih lengkap agar tidak salah memilih.`;
+        const g = candidates[0].g;
+        const harvest = aiV20.harvests().filter(x=>x.record.gardenIdReference===g.id);
+        const fertilizing = aiSortedRecords('Pemupukan').filter(x=>x.record.gardenIdReference===g.id);
+        const total = aiV20.sum(harvest,x=>x.record.quantity);
+        const recent = harvest[0];
+        aiV20.lastAnalysis = { type:'garden', gardenId:g.id, gardenName:g.title };
+        return `🌱 **DETAIL KEBUN: ${g.title || 'Tanpa nama'}**\n• Jumlah pohon tercatat: **${aiSafeNumber(g.plantCount)}**\n• Total panen historis: **${total.toLocaleString('id-ID')} kg**\n• Catatan panen: **${harvest.length}**\n• Catatan pemupukan: **${fertilizing.length}**\n• Panen terakhir tercatat: **${recent ? `${aiSafeNumber(recent.record.quantity).toLocaleString('id-ID')} kg pada ${aiV20.dateLabel(recent.date)}` : 'Belum ada'}**\n\nTotal historis bukan ukuran produktivitas per hektare atau per musim.`;
+    },
+    financePeriod(message) {
+        const days = aiV20.periodDays(message);
+        const range = this.dateRange(days);
+        const items = (Array.isArray(finances)?finances:[]).filter(x=>this.inRange(x.date,range));
+        const income = aiV20.sum(items.filter(x=>String(x.type).toLowerCase()==='pemasukan'),x=>x.price);
+        const expense = aiV20.sum(items.filter(x=>String(x.type).toLowerCase()!=='pemasukan'),x=>x.price);
+        aiV20.lastAnalysis = { type:'finance-period', days };
+        if (!items.length) return `Belum ada transaksi keuangan bertanggal valid dalam ${days} hari terakhir.`;
+        return `💳 **KEUANGAN ${days} HARI TERAKHIR**\n• Pemasukan: **${aiV20.money(income)}**\n• Pengeluaran: **${aiV20.money(expense)}**\n• Selisih tercatat: **${aiV20.money(income-expense)}**\n• Jumlah transaksi: **${items.length}**\n\nHanya transaksi yang tanggalnya berada dalam periode tersebut yang dihitung. Ini bukan laporan laba rugi lengkap jika masih ada transaksi yang belum dicatat.`;
+    },
+    fertilizerUsage() {
+        const rows = (Array.isArray(records)?records:[]).filter(r=>r.type==='Pemupukan');
+        if (!rows.length) return 'Belum ada catatan pemupukan untuk dianalisis.';
+        const byName = {};
+        rows.forEach(r=>{ const name=String(r.pupukType||'Tidak tercatat').trim(); const entry=byName[name]||(byName[name]={count:0,kg:0}); entry.count++; entry.kg+=aiSafeNumber(r.usedAmountKg); });
+        const sorted=Object.entries(byName).sort((a,b)=>b[1].kg-a[1].kg);
+        return `🧪 **RIWAYAT PENGGUNAAN PUPUK**\n• Catatan pemupukan: **${rows.length}**\n• Total penggunaan yang tercatat: **${aiV20.sum(rows,r=>r.usedAmountKg).toLocaleString('id-ID',{maximumFractionDigits:3})} kg**\n\n${sorted.map(([name,v])=>`• ${name}: ${v.kg.toLocaleString('id-ID',{maximumFractionDigits:3})} kg (${v.count} catatan)`).join('\n')}\n\nAngka mengikuti kolom penggunaan yang tersimpan; data kosong atau format lama mungkin tidak tercakup. Ini bukan rekomendasi dosis.`;
+    },
+    reminderReport() {
+        const list=Array.isArray(reminders)?reminders:[];
+        if (!list.length) return 'Belum ada pengingat yang tersimpan.';
+        const today=new Date(); today.setHours(0,0,0,0);
+        const dated=list.map(r=>({...r,_date:aiParseDate(r.dateDue)})).filter(r=>r._date).sort((a,b)=>a._date-b._date);
+        const overdue=dated.filter(r=>r._date<today), upcoming=dated.filter(r=>r._date>=today).slice(0,8);
+        const line=r=>`• ${r.title||r.type||'Pengingat'} — ${aiV20.dateLabel(r._date)}`;
+        aiV20.lastAnalysis={type:'reminders'};
+        return `⏰ **RINGKASAN PENGINGAT**\n• Total pengingat: **${list.length}**\n• Terlewat berdasarkan tanggal: **${overdue.length}**\n• Jadwal mendatang: **${dated.length-overdue.length}**\n\n**Terlewat**\n${overdue.length?overdue.slice(0,8).map(line).join('\n'):'Tidak ada'}\n\n**Berikutnya**\n${upcoming.length?upcoming.map(line).join('\n'):'Tidak ada jadwal bertanggal valid.'}\n\nPeriksa status pengingat di aplikasi; laporan ini hanya membaca tanggal yang tersimpan.`;
+    },
+    dataOverview() {
+        const gs=Array.isArray(gardens)?gardens:[], rs=Array.isArray(records)?records:[], fs=Array.isArray(finances)?finances:[], fert=Array.isArray(fertilizers)?fertilizers:[], rem=Array.isArray(reminders)?reminders:[];
+        return `🧾 **RINGKASAN SELURUH DATA**\n• Kebun: **${gs.length}**\n• Catatan aktivitas: **${rs.length}**\n• Catatan panen: **${rs.filter(r=>r.type==='Panen').length}**\n• Catatan pemupukan: **${rs.filter(r=>r.type==='Pemupukan').length}**\n• Transaksi keuangan: **${fs.length}**\n• Item inventaris pupuk: **${fert.length}**\n• Pengingat: **${rem.length}**\n\nRingkasan jumlah item, bukan penilaian kualitas atau kelengkapan seluruh data.`;
+    }
+};
+
+function aiResolveV30Intent(message) {
+    const t=aiNormalizeText(message);
+    if (/bandingkan panen|perbandingan panen|panen dibanding|dibanding periode|naik atau turun.*panen/.test(t)) return aiV30.compareHarvest(aiV20.periodDays(t));
+    if (/keuangan.*(hari|minggu|bulan)|transaksi.*(hari|minggu|bulan)|pengeluaran.*(hari|minggu|bulan)|pemasukan.*(hari|minggu|bulan)/.test(t)) return aiV30.financePeriod(message);
+    if (/penggunaan pupuk|riwayat pupuk|total pupuk terpakai|berapa pupuk.*terpakai/.test(t)) return aiV30.fertilizerUsage();
+    if (/pengingat|jadwal.*pemupukan|pengingat terlewat|reminder/.test(t)) return aiV30.reminderReport();
+    if (/ringkasan seluruh data|statistik seluruh data|berapa banyak data|jumlah seluruh data/.test(t)) return aiV30.dataOverview();
+    if (/detail kebun|analisis kebun|data kebun|panen kebun/.test(t)) { const result=aiV30.gardenDetail(message); if(result) return result; }
+    if (/^(jelasin|jelaskan|lebih detail|detailnya|kenapa|kok bisa|lanjut)\??$/.test(t) && aiV20.lastAnalysis?.type==='harvest-compare') return aiV30.compareHarvest(aiV20.lastAnalysis.days);
+    if (/^(jelasin|jelaskan|lebih detail|detailnya|kenapa|kok bisa|lanjut)\??$/.test(t) && aiV20.lastAnalysis?.type==='finance-period') return aiV30.financePeriod(`${aiV20.lastAnalysis.days} hari`);
+    return null;
+}
+
+function aiResolveV20Intent(message) {
+    const t = aiNormalizeText(message);
+    if (/bantuan ai|help ai|fitur ai|apa yang bisa kamu|kemampuan kamu|cara pakai ai|perintah ai/.test(t)) return aiV20.help();
+    if (/ringkasan keuangan|laporan keuangan|rekap keuangan|pengeluaran terbesar|pemasukan dan pengeluaran|saldo keseluruhan/.test(t)) return aiV20.financeSummary();
+    if (/laporan stok|inventaris pupuk|semua stok pupuk|total stok pupuk|rincian stok pupuk/.test(t)) return aiV20.stockReport();
+    if (/catatan ganda|data duplikat|catatan duplikat|cek duplikasi|catatan kembar/.test(t)) return aiV20.duplicateAudit();
+    if (/hari apa.*panen|pola panen.*hari|panen berdasarkan hari|hari panen terbanyak/.test(t)) return aiV20.weekdayAnalysis();
+    if (/peringkat kebun|kebun paling produktif|kebun panen tertinggi|panen peringkat|kebun mana.*panen/.test(t)) return aiV20.gardenRanking();
+    if (/rekap panen 6 bulan|panen per bulan|panen bulanan|rekap bulanan/.test(t)) return aiV20.monthlyHarvest();
+    if (/panen.*(hari|minggu|bulan)|analisis panen.*(hari|minggu|bulan)|hasil panen.*(hari|minggu|bulan)/.test(t)) return aiV20.harvestPeriod(aiV20.periodDays(t));
+    if (/kemampuan|apakah kamu.*gpt|kamu gpt|siapa kamu/.test(t)) return aiV20.help();
+    if (/^(jelasin|jelaskan|lebih detail|detailnya|kenapa|kok bisa|lanjut)\??$/.test(t) && aiV20.lastAnalysis?.type === 'period') return aiV20.harvestPeriod(aiV20.lastAnalysis.days);
+    if (/^(jelasin|jelaskan|lebih detail|detailnya|kenapa|kok bisa|lanjut)\??$/.test(t) && aiV20.lastAnalysis?.type === 'finance') return aiV20.financeSummary();
+    return null;
+}
+
+// Router final V20: V20 -> V10 -> V5 -> basis pengetahuan lama.
+function getAiResponse(message) {
+    const expanded = aiExpandNaturalLanguage(message);
+    const topic = aiDetectTopic(expanded) || aiDetectTopic(message);
+    let response = null;
+    try {
+        response = aiResolveV30Intent(message);
+        if (response === null) response = aiResolveV20Intent(message);
+        if (response === null) response = aiResolveV10Intent(message);
+        if (response === null) response = aiResolveSmartIntent(message);
+        if (response === null) response = getAiResponseLegacy(expanded);
+        response = aiV20.guardrail(message, response);
+    } catch (error) {
+        console.error('Einstein Offline AI V30 error:', error);
+        response = 'Maaf, analisis ini belum bisa diproses. Data My Garden tidak saya ubah. Coba pertanyaan lebih spesifik atau ketik **bantuan AI**.';
+    }
+    if (!response || typeof response !== 'string') response = 'Saya belum menemukan jawaban yang cukup akurat. Ketik **bantuan AI** untuk melihat contoh pertanyaan.';
+    aiSessionMemory.remember(message, response, topic);
+    return response;
+}
+
+// Hindari input pengguna dieksekusi sebagai HTML saat ditampilkan di gelembung chat.
+(function aiV20SecureChatRendering() {
+    const originalAddChatMessage = addChatMessage;
+    window.addChatMessage = function(message, sender) {
+        const chatMessages = document.getElementById('chat-messages');
+        if (!chatMessages) return originalAddChatMessage(message, sender);
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${sender}`;
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble';
+        if (sender === 'user') bubble.textContent = String(message ?? '');
+        else bubble.innerHTML = String(message ?? '');
+        const timestamp = document.createElement('span');
+        timestamp.className = 'chat-timestamp';
+        timestamp.textContent = formatTime();
+        bubble.appendChild(timestamp);
+        messageDiv.appendChild(bubble);
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    };
+})();
+
+/* ======================== END EINSTEIN OFFLINE AI V30 ======================== */
+
+
 // --- AUTHENTICATION & PROFIL MANAGEMENT ---
 
 /* ========================== END FITUR: PUPUK & AI ========================== */
@@ -3657,49 +4281,55 @@ function handleLogout() {
     window.location.reload();
 }
 
+// ** FITUR HAPUS AKUN **
+// Hapus seluruh data akun dari IndexedDB dan LocalStorage.
 async function performAccountDeletion() {
-    await dbHelper.delete(`records_${loggedInUsername}`);
-    await dbHelper.delete(`gallery_${loggedInUsername}`);
-    await dbHelper.delete(`gardens_${loggedInUsername}`);
-    await dbHelper.delete(`reminders_${loggedInUsername}`);
-    await dbHelper.delete(`fertilizers_${loggedInUsername}`);
-    await dbHelper.delete(`poison_${loggedInUsername}`);
-    await dbHelper.delete(`maps_${loggedInUsername}`);
-    await dbHelper.delete(`avatar_${loggedInUsername}`);
-    await dbHelper.delete(`finances_${loggedInUsername}`);
-    await dbHelper.delete(`financeBooks_${loggedInUsername}`);
+    if (!loggedInUsername) {
+        showCustomDialog('Error', 'Tidak ada akun yang sedang login.');
+        return;
+    }
 
+    const usernameToDelete = loggedInUsername;
+    const accountDataKeys = [
+        'records', 'gallery', 'gardens', 'reminders',
+        'fertilizers', 'poison', 'maps', 'avatar',
+        'finances', 'financeBooks'
+    ];
 
-    registeredUsers = registeredUsers.filter(u => u.username !== loggedInUsername);
-    await saveRegisteredUsers();
-    handleLogout();
+    try {
+        // Data utama aplikasi disimpan di IndexedDB.
+        // Hapus juga LocalStorage untuk membersihkan sisa data versi lama/migrasi.
+        for (const prefix of accountDataKeys) {
+            const key = `${prefix}_${usernameToDelete}`;
+            await dbHelper.delete(key);
+            localStorage.removeItem(key);
+        }
+
+        // Pastikan daftar akun tersimpan setelah akun dihapus.
+        registeredUsers = registeredUsers.filter(
+            user => user.username !== usernameToDelete
+        );
+        await saveRegisteredUsers();
+
+        // Bersihkan sesi dan muat ulang aplikasi.
+        handleLogout();
+    } catch (error) {
+        console.error('Gagal menghapus seluruh data akun:', error);
+        showCustomDialog(
+            'Penghapusan Gagal',
+            'Sebagian data akun gagal dihapus. Periksa koneksi penyimpanan lokal lalu coba lagi.'
+        );
+    }
 }
 
-// ** FITUR HAPUS AKUN **
 function confirmDeleteAccount() {
     showConfirmDialog(
         'Hapus Akun?',
-        'PERINGATAN: Tindakan ini tidak bisa dibatalkan. Semua data catatan, kebun, dan foto Anda akan dihapus selamanya. Yakin?',
-        performAccountDeletion, 
+        'PERINGATAN: Tindakan ini tidak bisa dibatalkan. Semua data catatan, kebun, foto, keuangan, dan data akun lainnya akan dihapus permanen. Yakin?',
+        performAccountDeletion,
         null,
         'danger'
     );
-}
-
-function performAccountDeletion() {
-    localStorage.removeItem(`records_${loggedInUsername}`);
-    localStorage.removeItem(`gallery_${loggedInUsername}`);
-    localStorage.removeItem(`gardens_${loggedInUsername}`);
-    localStorage.removeItem(`reminders_${loggedInUsername}`);
-    localStorage.removeItem(`fertilizers_${loggedInUsername}`);
-    localStorage.removeItem(`maps_${loggedInUsername}`);
-    localStorage.removeItem(`poison_${loggedInUsername}`);
-    localStorage.removeItem(`finances_${loggedInUsername}`);
-    localStorage.removeItem
-
-    registeredUsers = registeredUsers.filter(u => u.username !== loggedInUsername);
-    saveRegisteredUsers();
-    handleLogout();
 }
 
 function openChangeProfileModal() {
